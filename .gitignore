@@ -1,0 +1,11 @@
+model_params/X_train.txt
+model_params/y_train.txt
+model_params/X_test.bin
+model_params/y_test.bin
+inference_seq
+inference_omp
+inference_sections
+inference_nested
+inference_mpi
+inference_hybrid
+inference_hybrid_avx
