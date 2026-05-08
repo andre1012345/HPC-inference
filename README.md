@@ -1,9 +1,11 @@
-[README (3).md](https://github.com/user-attachments/files/27512713/README.3.md)
+[README (4).md](https://github.com/user-attachments/files/27513154/README.4.md)
 # HPC Parallel Ensemble Inference Engine
 
 **University of Messina · HPC Course Project · Andrea**
 
 A hybrid MPI + OpenMP inference engine for a three-model soft-voting ensemble classifier (KNN, Naive Bayes, Logistic Regression), built to study parallelisation strategies on a four-core UMA node.
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/andre1012345/HPC-inference/blob/main/parallel.ipynb)
 
 ---
 
@@ -11,22 +13,34 @@ A hybrid MPI + OpenMP inference engine for a three-model soft-voting ensemble cl
 
 ```
 HPC-inference/
-├── model_params/           # exported by Colab (parameters + test set)
+├── parallel.ipynb          # Colab notebook — generates model_params/ (run this first)
+├── model_params/           # exported parameters + test set (output of the notebook)
 ├── inference_seq.cpp       # sequential baseline      (p=1, t=1)
 ├── inference_sections.cpp  # OpenMP task parallel     (omp sections)
 ├── inference_omp.cpp       # OpenMP data parallel     (omp parallel for)
 ├── inference_mpi.cpp       # MPI data parallel        (p ranks, t=1)
 ├── inference_nested.cpp    # nested / oversubscription experiment
-└── inference_hybrid.cpp    # Hybrid MPI+OpenMP        (p ranks × t threads)
+├── inference_hybrid.cpp    # Hybrid MPI+OpenMP        (p ranks × t threads)
+└── README.md
 ```
-
-Each file is self-contained — no shared library between variants. Compile, run, and time each one independently.
 
 ---
 
 ## Step 1 — Offline Training Phase (Google Colab)
 
-Run the provided Colab notebook **once** to generate all model parameters. No training happens at C++ runtime.
+> **The notebook must be run once before any C++ binary can be executed.**
+> It generates the `model_params/` directory that the inference engine reads at startup.
+> No training happens at C++ runtime.
+
+Click the badge at the top of this page, or open the notebook directly:
+
+```
+https://colab.research.google.com/github/andre1012345/HPC-inference/blob/main/parallel.ipynb
+```
+
+Run all cells in order. When the last cell finishes it produces a `model_params.zip` in the
+Colab file browser (left panel). Download it, unzip it, and place the `model_params/` folder
+in the same directory as the compiled C++ binaries.
 
 ### What the notebook does
 
@@ -37,7 +51,7 @@ Run the provided Colab notebook **once** to generate all model parameters. No tr
 | Feature scaling | `StandardScaler().fit(X_train)` → transform both splits | Zero mean, unit variance |
 | Model training | `KNeighborsClassifier(k=5)`, `GaussianNB()`, `LogisticRegression()` | Three fitted models |
 | Soft-vote validation | Average probabilities, threshold at 0.5 | Accuracy **0.8844** on test set |
-| Export | `np.savetxt / struct.pack` | `model_params/` folder |
+| Export | `np.savetxt` / `struct.pack` | `model_params/` folder |
 
 ### Exported files
 
@@ -53,21 +67,22 @@ Run the provided Colab notebook **once** to generate all model parameters. No tr
 | `X_test.bin` | Binary: `[int32 rows][int32 cols][float64 × 20000 × 20]` | ~3.2 MB |
 | `y_test.bin` | Binary: `[int32 n][int32 × 20000]` | ~80 KB |
 
-> **Why ~8 MB?** KNN is a lazy learner — the entire training set *is* the model. At inference time the engine computes the Euclidean distance from every query point to all 50,000 training points. This array is loaded once into a contiguous `std::vector<double>` and kept in memory for the whole batch, making it the primary source of memory pressure in every experiment.
-
-After the notebook finishes, download `model_params.zip` from the Colab file browser and place the unzipped folder next to the compiled binaries.
+> **Why ~8 MB?** KNN is a lazy learner — the entire training set *is* the model. At inference
+> time the engine computes the Euclidean distance from every query point to all 50,000 training
+> points. This array is the primary source of memory pressure in every experiment.
 
 ---
 
 ## Step 2 — Compilation
 
-All variants compile with `mpicxx`, the MPI C++ wrapper around `g++`. The `-fopenmp` flag is required only for variants that use OpenMP.
+All variants compile with `mpicxx`, the MPI C++ wrapper around `g++`.
+The `-fopenmp` flag is required only for variants that use OpenMP.
 
 ```bash
 # Sequential baseline
 mpicxx -O2 -std=c++17 -o inference_seq      inference_seq.cpp
 
-# OpenMP variants (sections and parallel-for)
+# OpenMP variants
 mpicxx -O2 -fopenmp -std=c++17 -o inference_sections  inference_sections.cpp
 mpicxx -O2 -fopenmp -std=c++17 -o inference_omp       inference_omp.cpp
 
@@ -81,19 +96,17 @@ mpicxx -O2 -fopenmp -std=c++17 -o inference_nested    inference_nested.cpp
 mpicxx -O2 -fopenmp -std=c++17 -o inference_hybrid    inference_hybrid.cpp
 ```
 
-**Compiler flags explained:**
-
 | Flag | Effect |
 |------|--------|
-| `-O2` | Standard optimisations (inlining, loop unrolling, constant folding) without aggressive floating-point reordering |
-| `-fopenmp` | Enables OpenMP directives and links the OpenMP runtime |
-| `-std=c++17` | Required for structured bindings and `<filesystem>` (if used) |
+| `-O2` | Standard optimisations (inlining, loop unrolling, constant folding) |
+| `-fopenmp` | Enables OpenMP directives and links the runtime |
+| `-std=c++17` | C++17 standard |
 
 ---
 
 ## Step 3 — Running Experiments
 
-`P` = number of MPI ranks · `T` = number of OpenMP threads per rank · `P × T` = total logical execution units.
+`P` = MPI ranks · `T` = OpenMP threads per rank · `P × T` = total logical execution units.
 
 ```bash
 # Sequential baseline (must use -n 1)
@@ -115,69 +128,67 @@ OMP_NUM_THREADS=2 mpirun -n 2 ./inference_hybrid
 OMP_NUM_THREADS=2 mpirun -n 4 ./inference_hybrid
 ```
 
-> **Resource constraint:** `P × T ≤ physical_cores` should be respected to avoid oversubscription. Configurations that violate this rule (like the last example above) are included as explicit oversubscription experiments and their results are interpreted accordingly.
+> `P × T ≤ physical_cores` should be respected to avoid oversubscription.
+> The last command is an explicit oversubscription experiment.
 
 ---
 
 ## How Each Variant Works
 
 ### `inference_seq.cpp` — Sequential baseline
-A single loop iterates over all 20,000 test samples. For each sample it calls KNN, Naive Bayes, and Logistic Regression in sequence, averages the three probabilities, and writes the predicted class to a result array. Provides the reference time **T₁**.
+Single loop over all 20,000 samples. Calls KNN → Naive Bayes → Logistic Regression in
+sequence per sample, averages probabilities, writes the predicted class.
+Reference time: **T₁ = 17.73 s**.
 
 ### `inference_sections.cpp` — OpenMP task parallelism
-Three `#pragma omp parallel sections` assign one base model per section: one thread runs KNN on all samples, a second runs Naive Bayes, a third runs Logistic Regression. Results are combined in a sequential reduction step after the parallel region.  
-⚠️ KNN dominates execution time by a factor of ~100×, so the two faster threads sit idle while KNN finishes. This causes severe **load imbalance** and produces a slowdown relative to sequential.
+Three `#pragma omp parallel sections`, one model per section. One thread runs KNN on all
+samples, a second runs Naive Bayes, a third runs Logistic Regression.
+⚠️ KNN is ~3,000× slower than the other two — the other threads sit idle at the barrier.
+Result: **0.70× speedup** (slower than sequential). Intentional experiment to demonstrate
+Amdahl's Law under load imbalance.
 
 ### `inference_omp.cpp` — OpenMP data parallelism
-A single `#pragma omp parallel for schedule(static)` distributes the 20,000 test samples evenly across threads. Each thread evaluates all three models on its own share and writes predictions to disjoint indices — no synchronisation needed. Eliminates load imbalance, but all threads share the same copy of `X_train` in the same address space. On a UMA node with a shared memory bus, bus saturation limits speedup beyond 2 threads.
+`#pragma omp parallel for schedule(static)` distributes the 20,000 samples evenly across
+threads. Eliminates load imbalance, but all threads share the same `X_train` in memory.
+The UMA memory bus saturates between t=2 and t=4 → **scaling plateau at ~1.30×**.
 
 ### `inference_mpi.cpp` — MPI data parallelism
-Each rank loads its own **private copy** of all model parameters from disk. Rank 0 distributes the test set with `MPI_Scatter` (N/p rows per rank) and collects results with `MPI_Gather`. Because each rank is a separate OS process, the cache-coherence protocol does not see the model parameters as a shared resource — each rank accesses its own copy in its own physical address space, eliminating the bus contention of the OpenMP variant.
+Each rank loads its own **private copy** of all parameters. `MPI_Scatter` sends N/p samples
+per rank; each rank processes its chunk sequentially; `MPI_Gather` collects results.
+Private address spaces eliminate cache-coherency bus traffic.
+Result: **1.80× at p=4** — better than OpenMP's 1.30× at t=4 on the same hardware.
 
 ### `inference_hybrid.cpp` — Hybrid MPI+OpenMP *(best performing)*
-Combines both levels of parallelism. MPI initialised with `MPI_THREAD_FUNNELED` (only the master thread makes MPI calls). `MPI_Scatter` distributes N/p samples to each rank; within each rank a `#pragma omp parallel for` further splits the local chunk across `t` threads. The implicit OpenMP barrier ensures all threads complete before the master thread calls `MPI_Gather`. Per-thread KNN distance buffers are pre-allocated before the timing loop to avoid dynamic allocation in the hot path.
+MPI initialised with `MPI_THREAD_FUNNELED`. `MPI_Scatter` → `omp parallel for` per rank →
+`MPI_Gather`. Per-thread KNN distance buffers pre-allocated to avoid heap contention.
+Best result: **2.89× speedup** = 73% of the Amdahl theoretical maximum (3.95×).
 
-### `inference_nested.cpp` — Nested / oversubscription
-Deliberately creates more logical execution units than physical cores. Included to quantify the performance penalty of oversubscription (context-switch overhead, cache thrashing) and to validate the `P × T ≤ physical_cores` guideline experimentally.
-
----
-
-## Common Infrastructure
-
-All six files share the same three inference functions and the same I/O helpers; only `main()` differs.
-
-**Inference functions (thread-safe — all state on the stack):**
-- `knn_predict_proba` — brute-force Euclidean distance + `std::partial_sort`, returns class-1 vote fraction
-- `nb_predict_proba` — Gaussian log-posterior with numerically stable softmax
-- `lr_predict_proba` — sigmoid of dot product `w · x + b`
-
-**Timing discipline:**  
-`MPI_Wtime()` wraps only the inference phase (Scatter + parallel loop + Gather). File I/O and model loading are excluded. Each configuration runs 5 times; the **median** is reported to reduce system noise.
-
-**Correctness invariant:**  
-Every parallel configuration must reproduce the exact same 20,000 predictions as the sequential baseline. Accuracy must match **0.8844**. Any deviation indicates a race condition or a floating-point aggregation error.
+### `inference_nested.cpp` — Oversubscription experiment
+Creates more logical units than physical cores. Included to quantify the performance
+penalty when P × T > physical_cores.
 
 ---
 
 ## Results Summary
 
-| Configuration | P | T | P×T | Median time (s) | Speedup |
+| Configuration | P | T | P×T | Median (s) | Speedup |
 |---|---|---|---|---|---|
 | Sequential | 1 | 1 | 1 | 17.73 | 1.00× |
-| OpenMP sections | 1 | 3 | 3 | 25.30 | 0.70× |
-| OpenMP parallel-for | 1 | 4 | 4 | 13.52 | 1.31× |
-| MPI only | 4 | 1 | 4 | 9.85 | 1.80× |
-| **Hybrid MPI+OpenMP** | **4** | **2** | **8\*** | **6.13** | **2.89×** |
+| OpenMP sections | 1 | 3 | 3 | 25.39 | 0.70× |
+| OpenMP parallel-for (t=2) | 1 | 2 | 2 | 13.52 | 1.31× |
+| OpenMP parallel-for (t=4) | 1 | 4 | 4 | 13.64 | 1.30× |
+| MPI only (p=4) | 4 | 1 | 4 | 9.85 | 1.80× |
+| Hybrid (p=2, t=2) | 2 | 2 | 4 | 7.42 | 2.39× |
+| **Hybrid (p=4, t=2) \*** | **4** | **2** | **8** | **6.14** | **2.89×** |
 
-\* Oversubscription experiment (8 logical units on 4 physical cores).  
-Amdahl's Law theoretical maximum on this hardware: **3.95×**.  
-Best achieved: **2.89×** = 73% of theoretical maximum.
+\* Oversubscription experiment. Amdahl theoretical maximum on this hardware: **3.95×**.
 
 ---
 
 ## Requirements
 
-- C++17-compatible compiler (GCC 9+ recommended)
-- MPI implementation (OpenMPI or MPICH)
+- GCC 9+ with C++17 support
+- OpenMPI or MPICH
 - OpenMP (included with GCC via `-fopenmp`)
-- Python 3.8+ with `scikit-learn`, `numpy` (for the Colab notebook only)
+- Python 3.8+ with `scikit-learn` and `numpy` — only needed for the Colab notebook;
+  no local Python install required if you use the pre-built `model_params/` in the repo
