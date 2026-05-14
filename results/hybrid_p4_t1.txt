@@ -1,0 +1,24 @@
+Loading model parameters...
+Loading training and test sets...
+  N_train : 50000 (full, per rank)
+  N_test  : 20000  →  5000 per rank
+
+Ranks: 4  Threads/rank: 1  Total logical cores: 4
+
+  Run 1/5  time = 8.95232 s
+  Run 2/5  time = 8.88598 s
+  Run 3/5  time = 8.99925 s
+  Run 4/5  time = 8.68909 s
+  Run 5/5  time = 10.3705 s
+
+========================================
+  HYBRID MPI+OpenMP RESULTS
+========================================
+  Ranks       : 4
+  Threads/rank: 1
+  N_test      : 20000
+  N_train     : 50000
+  KNN k       : 5
+  Accuracy    : 0.8844
+  Median time : 8.95232 s
+========================================

@@ -1,0 +1,19 @@
+Loading model parameters...
+Loading test set from binary file...
+Test set loaded: 20000 samples x 20 features
+
+  Run 1/5  time = 16.6092 s
+  Run 2/5  time = 17.5934 s
+  Run 3/5  time = 16.4221 s
+  Run 4/5  time = 16.2438 s
+  Run 5/5  time = 17.3142 s
+
+========================================
+  SEQUENTIAL BASELINE RESULTS
+========================================
+  N_test      : 20000
+  N_train     : 50000
+  KNN k       : 5
+  Accuracy    : 0.8844
+  Median time : 16.6092 s  (T1 baseline)
+========================================
