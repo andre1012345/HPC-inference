@@ -10,3 +10,4 @@ inference_mpi
 inference_hybrid
 inference_hybrid_avx
 gmon.out
+inference_dist_knn
