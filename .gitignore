@@ -9,3 +9,4 @@ inference_nested
 inference_mpi
 inference_hybrid
 inference_hybrid_avx
+gmon.out
