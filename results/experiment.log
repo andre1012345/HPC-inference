@@ -47,3 +47,101 @@ ranks,threads,total_workers,median_time_s,speedup,efficiency
 3,2,6,7.17259,3.5111,0.5852
 4,1,4,7.89791,3.1886,0.7972
 4,2,8,7.04046,3.5770,0.4471
+[2026-05-14 20:39:48] ============================================================
+[2026-05-14 20:39:48]   HPC Experiment Run — 2026-05-14 20:39:48
+[2026-05-14 20:39:48]   Host : DESKTOP-2SQL71J
+[2026-05-14 20:39:48]   CPU  : Intel(R) Core(TM) i5-8350U CPU @ 1.70GHz
+[2026-05-14 20:39:48] ============================================================
+[2026-05-14 20:39:48] --- Running baseline (p=1, t=1) using inference_dist_knn ---
+[2026-05-14 20:41:31]   T1 baseline = 31.3779 s
+[2026-05-14 20:41:31] CSV initialised at /home/andre/dev/projects/hpc_inference/results/speedup.csv
+[2026-05-14 20:41:31] --- Running hybrid_p1_t2  (ranks=1, threads/rank=2, total=2) ---
+[2026-05-14 20:42:28]   Median time = 16.8359 s
+[2026-05-14 20:42:28]   Speedup = 1.8637   Efficiency = 0.9319
+[2026-05-14 20:42:28] --- Running hybrid_p2_t1  (ranks=2, threads/rank=1, total=2) ---
+[2026-05-14 20:43:24]   Median time = 15.9453 s
+[2026-05-14 20:43:24]   Speedup = 1.9678   Efficiency = 0.9839
+[2026-05-14 20:43:24] --- Running hybrid_p2_t2  (ranks=2, threads/rank=2, total=4) ---
+[2026-05-14 20:44:05]   Median time = 12.095 s
+[2026-05-14 20:44:05]   Speedup = 2.5943   Efficiency = 0.6486
+[2026-05-14 20:44:05] --- Running hybrid_p3_t1  (ranks=3, threads/rank=1, total=3) ---
+[2026-05-14 20:44:45]   Median time = 12.5717 s
+[2026-05-14 20:44:45]   Speedup = 2.4959   Efficiency = 0.8320
+[2026-05-14 20:44:45] --- Running hybrid_p3_t2  (ranks=3, threads/rank=2, total=6) ---
+[2026-05-14 20:45:14]   Median time = 8.20255 s
+[2026-05-14 20:45:14]   Speedup = 3.8254   Efficiency = 0.6376
+[2026-05-14 20:45:14] --- Running hybrid_p4_t1  (ranks=4, threads/rank=1, total=4) ---
+[2026-05-14 20:45:48]   Median time = 10.1046 s
+[2026-05-14 20:45:48]   Speedup = 3.1053   Efficiency = 0.7763
+[2026-05-14 20:45:48] --- Running hybrid_p4_t2  (ranks=4, threads/rank=2, total=8) ---
+[2026-05-14 20:46:15]   Median time = 7.7317 s
+[2026-05-14 20:46:15]   Speedup = 4.0583   Efficiency = 0.5073
+[2026-05-14 20:46:15] 
+[2026-05-14 20:46:15] ============================================================
+[2026-05-14 20:46:15]   EXPERIMENT COMPLETE
+[2026-05-14 20:46:15]   Raw outputs  →  /home/andre/dev/projects/hpc_inference/results/raw/
+[2026-05-14 20:46:15]   Summary CSV  →  /home/andre/dev/projects/hpc_inference/results/speedup.csv
+[2026-05-14 20:46:15]   Full log     →  /home/andre/dev/projects/hpc_inference/results/experiment.log
+[2026-05-14 20:46:15] ============================================================
+[2026-05-14 20:46:15] 
+[2026-05-14 20:46:15]   CSV contents:
+# HPC Experiment Results — 2026-05-14 20:41:31
+# T1 (sequential baseline) = 31.3779 s
+ranks,threads,total_workers,median_time_s,speedup,efficiency
+1,1,1,31.3779,1.0000,1.0000
+1,2,2,16.8359,1.8637,0.9319
+2,1,2,15.9453,1.9678,0.9839
+2,2,4,12.095,2.5943,0.6486
+3,1,3,12.5717,2.4959,0.8320
+3,2,6,8.20255,3.8254,0.6376
+4,1,4,10.1046,3.1053,0.7763
+4,2,8,7.7317,4.0583,0.5073
+[2026-05-14 21:10:02] ============================================================
+[2026-05-14 21:10:02]   HPC Experiment Run — 2026-05-14 21:10:02
+[2026-05-14 21:10:02]   Host : DESKTOP-2SQL71J
+[2026-05-14 21:10:02]   CPU  : Intel(R) Core(TM) i5-8350U CPU @ 1.70GHz
+[2026-05-14 21:10:02] ============================================================
+[2026-05-14 21:10:02] --- Running sequential baseline (pure serial, no MPI/OpenMP) ---
+[2026-05-14 21:11:35]   T1 baseline = 28.3243 s
+[2026-05-14 21:11:35] CSV initialised at /home/andre/dev/projects/hpc_inference/results/speedup.csv
+[2026-05-14 21:11:35] --- Running hybrid_p1_t2  (ranks=1, threads/rank=2, total=2) ---
+[2026-05-14 21:12:22]   Median time = 15.0657 s
+[2026-05-14 21:12:22]   Speedup = 1.8801   Efficiency = 0.9400
+[2026-05-14 21:12:22] --- Running hybrid_p2_t1  (ranks=2, threads/rank=1, total=2) ---
+[2026-05-14 21:13:11]   Median time = 14.9054 s
+[2026-05-14 21:13:11]   Speedup = 1.9003   Efficiency = 0.9501
+[2026-05-14 21:13:11] --- Running hybrid_p2_t2  (ranks=2, threads/rank=2, total=4) ---
+[2026-05-14 21:13:41]   Median time = 9.56564 s
+[2026-05-14 21:13:41]   Speedup = 2.9610   Efficiency = 0.7403
+[2026-05-14 21:13:41] --- Running hybrid_p3_t1  (ranks=3, threads/rank=1, total=3) ---
+[2026-05-14 21:14:22]   Median time = 12.6595 s
+[2026-05-14 21:14:22]   Speedup = 2.2374   Efficiency = 0.7458
+[2026-05-14 21:14:22] --- Running hybrid_p3_t2  (ranks=3, threads/rank=2, total=6) ---
+[2026-05-14 21:14:52]   Median time = 8.99098 s
+[2026-05-14 21:14:52]   Speedup = 3.1503   Efficiency = 0.5251
+[2026-05-14 21:14:52] --- Running hybrid_p4_t1  (ranks=4, threads/rank=1, total=4) ---
+[2026-05-14 21:15:27]   Median time = 10.3024 s
+[2026-05-14 21:15:27]   Speedup = 2.7493   Efficiency = 0.6873
+[2026-05-14 21:15:27] --- Running hybrid_p4_t2  (ranks=4, threads/rank=2, total=8) ---
+[2026-05-14 21:15:54]   Median time = 8.64965 s
+[2026-05-14 21:15:54]   Speedup = 3.2746   Efficiency = 0.4093
+[2026-05-14 21:15:54] 
+[2026-05-14 21:15:54] ============================================================
+[2026-05-14 21:15:54]   EXPERIMENT COMPLETE
+[2026-05-14 21:15:54]   Raw outputs  →  /home/andre/dev/projects/hpc_inference/results/raw/
+[2026-05-14 21:15:54]   Summary CSV  →  /home/andre/dev/projects/hpc_inference/results/speedup.csv
+[2026-05-14 21:15:54]   Full log     →  /home/andre/dev/projects/hpc_inference/results/experiment.log
+[2026-05-14 21:15:54] ============================================================
+[2026-05-14 21:15:54] 
+[2026-05-14 21:15:54]   CSV contents:
+# HPC Experiment Results — 2026-05-14 21:11:35
+# T1 (sequential baseline) = 28.3243 s
+ranks,threads,total_workers,median_time_s,speedup,efficiency
+1,1,1,28.3243,1.0000,1.0000
+1,2,2,15.0657,1.8801,0.9400
+2,1,2,14.9054,1.9003,0.9501
+2,2,4,9.56564,2.9610,0.7403
+3,1,3,12.6595,2.2374,0.7458
+3,2,6,8.99098,3.1503,0.5251
+4,1,4,10.3024,2.7493,0.6873
+4,2,8,8.64965,3.2746,0.4093

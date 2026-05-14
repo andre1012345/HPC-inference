@@ -46,15 +46,15 @@ extract_median() {
 }
 
 # ── Step 1: Sequential baseline ───────────────────────────────────────────────
-log "--- Running baseline (p=1, t=1) using inference_dist_knn ---"
+log "--- Running sequential baseline (pure serial, no MPI/OpenMP) ---"
 
 SEQ_OUT="${RAW_DIR}/seq_p1_t1.txt"
 {
-    echo "# Sequential baseline — p=1 t=1"
-    echo "# Command: OMP_NUM_THREADS=1 mpirun -n 1 ./inference_dist_knn"
+    echo "# Sequential baseline — pure serial inference_seq"
+    echo "# Command: OMP_NUM_THREADS=1 ./inference_seq"
     echo "# Date: $(date)"
     echo ""
-    OMP_NUM_THREADS=1 mpirun -n 1 ./inference_dist_knn
+    OMP_NUM_THREADS=1 ./inference_seq
 } 2>&1 | tee "${SEQ_OUT}"
 
 T1=$(extract_median "${SEQ_OUT}")
