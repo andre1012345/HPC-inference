@@ -9,6 +9,12 @@
 // Timing: MPI_Wtime() wraps only the inference phase.
 //         File I/O is excluded from timing.
 //         Median of N_RUNS reported to reduce system noise.
+//
+// Fix (v2): the KNN distance buffer is now allocated once before the run loop
+//           and reused across all N_test x N_RUNS calls. The original version
+//           allocated a 50k-element heap vector on every knn_predict_proba
+//           call (20k times per run), inflating the baseline with allocator
+//           overhead that does not reflect actual compute work.
 // =============================================================================
 
 #include <mpi.h>
@@ -35,7 +41,7 @@ static const std::string MODEL_DIR = "model_params";
 // I/O helpers
 // -----------------------------------------------------------------------------
 
-// Load a flat vector from a plain-text file (one value per line or space-separated)
+// Load a flat vector from a plain-text file (one value per line or space-separated).
 std::vector<double> load_vector(const std::string& path) {
     std::ifstream f(path);
     if (!f.is_open()) {
@@ -48,7 +54,7 @@ std::vector<double> load_vector(const std::string& path) {
     return v;
 }
 
-// Load a 2-D matrix from plain text (rows x cols values)
+// Load a 2-D matrix from plain text (rows x cols values, row-major).
 std::vector<double> load_matrix(const std::string& path, int rows, int cols) {
     std::vector<double> m = load_vector(path);
     if ((int)m.size() != rows * cols) {
@@ -93,14 +99,18 @@ std::vector<int> load_y_binary(const std::string& path) {
 }
 
 // -----------------------------------------------------------------------------
-// KNN inference — brute-force euclidean, majority vote over k neighbours
-// O(N_test x N_train x n_features) — heaviest model by design
+// KNN inference — brute-force Euclidean distance, majority vote over k neighbours.
+// Complexity: O(N_train * n_features) per query — intentionally the heaviest model.
+//
+// 'dist_buf' (doubles) and 'idx_buf' (ints) are pre-allocated scratch buffers
+// of size N_train passed by the caller. Reusing them avoids 20k heap allocations
+// per run (one per test sample).
 // -----------------------------------------------------------------------------
 double knn_predict_proba(const double* x,
                          const std::vector<double>& X_train,
                          const std::vector<int>&    y_train,
+                         double* dist_buf, int* idx_buf,
                          int n_train, int n_features, int k) {
-    std::vector<std::pair<double,int>> dist(n_train);
     for (int i = 0; i < n_train; ++i) {
         double d = 0.0;
         const double* xt = X_train.data() + i * n_features;
@@ -108,17 +118,19 @@ double knn_predict_proba(const double* x,
             double diff = x[j] - xt[j];
             d += diff * diff;
         }
-        dist[i] = {d, y_train[i]};
+        dist_buf[i] = d;
     }
-    std::partial_sort(dist.begin(), dist.begin() + k, dist.end());
+    std::iota(idx_buf, idx_buf + n_train, 0);
+    std::partial_sort(idx_buf, idx_buf + k, idx_buf + n_train,
+                      [&](int a, int b){ return dist_buf[a] < dist_buf[b]; });
     int votes = 0;
-    for (int i = 0; i < k; ++i) votes += dist[i].second;
+    for (int i = 0; i < k; ++i) votes += y_train[idx_buf[i]];
     return static_cast<double>(votes) / k;
 }
 
 // -----------------------------------------------------------------------------
-// Gaussian Naive Bayes inference
-// P(class=1|x) via log-posterior + numerically stable softmax
+// Gaussian Naive Bayes inference.
+// P(class=1|x) via log-posterior, numerically stabilised with log-sum-exp trick.
 // -----------------------------------------------------------------------------
 double nb_predict_proba(const double* x,
                         const std::vector<double>& means,
@@ -144,7 +156,7 @@ double nb_predict_proba(const double* x,
 }
 
 // -----------------------------------------------------------------------------
-// Logistic Regression inference
+// Logistic Regression inference.
 // P(class=1|x) = sigmoid(w · x + b)
 // -----------------------------------------------------------------------------
 double lr_predict_proba(const double* x,
@@ -173,23 +185,24 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // ── Load model parameters ────────────────────────────────────────────────
+    // Load model parameters once at startup.
+    // Note: X_train.txt and X_test.bin are pre-scaled by the Python pipeline.
+    // Scaler parameters are stored in model_params/ for reference but are
+    // not applied here (data is already normalised).
     std::cout << "Loading model parameters...\n";
 
-    auto scaler_mean = load_vector(MODEL_DIR + "/scaler_mean.txt");
-    auto scaler_std  = load_vector(MODEL_DIR + "/scaler_std.txt");
-    auto X_train     = load_matrix(MODEL_DIR + "/X_train.txt", N_TRAIN, N_FEATURES);
-    auto y_train_d   = load_vector(MODEL_DIR + "/y_train.txt");
-    auto nb_means    = load_matrix(MODEL_DIR + "/nb_means.txt",  N_CLASSES, N_FEATURES);
-    auto nb_vars     = load_matrix(MODEL_DIR + "/nb_vars.txt",   N_CLASSES, N_FEATURES);
-    auto nb_priors   = load_vector(MODEL_DIR + "/nb_priors.txt");
-    auto lr_weights  = load_vector(MODEL_DIR + "/lr_weights.txt");
-    auto lr_bias_v   = load_vector(MODEL_DIR + "/lr_bias.txt");
+    auto X_train    = load_matrix(MODEL_DIR + "/X_train.txt", N_TRAIN, N_FEATURES);
+    auto y_train_d  = load_vector(MODEL_DIR + "/y_train.txt");
+    auto nb_means   = load_matrix(MODEL_DIR + "/nb_means.txt",  N_CLASSES, N_FEATURES);
+    auto nb_vars    = load_matrix(MODEL_DIR + "/nb_vars.txt",   N_CLASSES, N_FEATURES);
+    auto nb_priors  = load_vector(MODEL_DIR + "/nb_priors.txt");
+    auto lr_weights = load_vector(MODEL_DIR + "/lr_weights.txt");
+    auto lr_bias_v  = load_vector(MODEL_DIR + "/lr_bias.txt");
 
     std::vector<int> y_train(y_train_d.begin(), y_train_d.end());
     double lr_bias = lr_bias_v[0];
 
-    // ── Load test set from binary file ───────────────────────────────────────
+    // Load test set from binary file.
     std::cout << "Loading test set from binary file...\n";
 
     long n_test; int n_feat;
@@ -199,45 +212,52 @@ int main(int argc, char** argv) {
     std::cout << "Test set loaded: " << n_test << " samples x "
               << n_feat << " features\n\n";
 
-    // ── Timed inference loop ─────────────────────────────────────────────────
+    // Pre-allocate KNN scratch buffers once, reused across all test samples
+    // and all runs to eliminate repeated heap allocation.
+    std::vector<double> dist_buf(N_TRAIN);
+    std::vector<int>    idx_buf(N_TRAIN);
+
+    // Timed inference loop.
     std::vector<double> run_times(N_RUNS);
     std::vector<int>    predictions(n_test);
 
     for (int run = 0; run < N_RUNS; ++run) {
 
-        double t_start = MPI_Wtime();  // ── timing starts ──
+        double t_start = MPI_Wtime();  // timing starts — I/O excluded
 
         for (long i = 0; i < n_test; ++i) {
             const double* x = X_test.data() + i * N_FEATURES;
 
             double p_knn = knn_predict_proba(x, X_train, y_train,
+                                             dist_buf.data(), idx_buf.data(),
                                              N_TRAIN, N_FEATURES, KNN_K);
             double p_nb  = nb_predict_proba (x, nb_means, nb_vars, nb_priors,
                                              N_FEATURES);
             double p_lr  = lr_predict_proba (x, lr_weights, lr_bias, N_FEATURES);
 
+            // Soft-voting ensemble: average probability, threshold at 0.5.
             predictions[i] = ((p_knn + p_nb + p_lr) / 3.0 >= 0.5) ? 1 : 0;
         }
 
-        double t_end = MPI_Wtime();    // ── timing ends ──
+        double t_end = MPI_Wtime();    // timing ends
 
         run_times[run] = t_end - t_start;
         std::cout << "  Run " << run + 1 << "/" << N_RUNS
                   << "  time = " << run_times[run] << " s\n";
     }
 
-    // ── Median time ──────────────────────────────────────────────────────────
+    // Median time across runs.
     std::vector<double> sorted_times = run_times;
     std::sort(sorted_times.begin(), sorted_times.end());
     double median_time = sorted_times[N_RUNS / 2];
 
-    // ── Accuracy ─────────────────────────────────────────────────────────────
+    // Accuracy on last run's predictions.
     long correct = 0;
     for (long i = 0; i < n_test; ++i)
         correct += (predictions[i] == y_test[i]);
     double accuracy = static_cast<double>(correct) / n_test;
 
-    // ── Report ───────────────────────────────────────────────────────────────
+    // Results report.
     std::cout << "\n========================================\n";
     std::cout << "  SEQUENTIAL BASELINE RESULTS\n";
     std::cout << "========================================\n";
