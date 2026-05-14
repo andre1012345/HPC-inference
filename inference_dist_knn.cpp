@@ -38,7 +38,7 @@ static const int    N_FEATURES = 20;
 static const int    N_TRAIN    = 50000;
 static const int    KNN_K      = 5;
 static const int    N_CLASSES  = 2;
-static const int    N_RUNS     = 5;
+static const int    N_RUNS     = 3;
 static const std::string MODEL_DIR = "model_params";
 
 // -----------------------------------------------------------------------------

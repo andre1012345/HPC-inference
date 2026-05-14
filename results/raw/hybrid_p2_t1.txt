@@ -1,0 +1,26 @@
+# Hybrid MPI+OpenMP — p=2 t=1
+# Command: OMP_NUM_THREADS=1 mpirun -n 2 ./inference_dist_knn
+# Date: Thu May 14 16:54:13 CEST 2026
+
+Loading model parameters...
+Loading training and test sets...
+  N_train : 50000 (full, per rank)
+  N_test  : 20000  →  10000 per rank
+
+Ranks: 2  Threads/rank: 1  Total logical cores: 2
+
+  Run 1/3  time = 11.1608 s
+  Run 2/3  time = 9.70282 s
+  Run 3/3  time = 9.97682 s
+
+========================================
+  HYBRID MPI+OpenMP RESULTS
+========================================
+  Ranks       : 2
+  Threads/rank: 1
+  N_test      : 20000
+  N_train     : 50000
+  KNN k       : 5
+  Accuracy    : 0.8844
+  Median time : 9.97682 s
+========================================
