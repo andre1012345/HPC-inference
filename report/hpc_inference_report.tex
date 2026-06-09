@@ -54,9 +54,10 @@
 This report presents the design and experimental evaluation of a hybrid
 MPI + OpenMP parallel inference engine for a three-model soft-voting
 ensemble classifier (K-Nearest Neighbours, Gaussian Naive Bayes, and
-Logistic Regression). The ensemble is trained offline on a fully synthetic
-binary classification dataset (70{,}000 samples, 20 features) using a
-Python training script (\texttt{train.py}) and achieves 88.44\% accuracy.
+Logistic Regression). The ensemble is trained offline (once, in Python, before any inference run;
+parameters are then fixed in files and never updated at inference time) on a
+fully synthetic binary classification dataset (70{,}000 samples, 20 features)
+and achieves 88.44\% accuracy.
 At inference time, the test set is distributed across MPI
 ranks via \texttt{MPI\_Scatter}; each rank parallelizes its local work with
 OpenMP; results are gathered with non-blocking \texttt{MPI\_Isend}/\allowbreak\texttt{MPI\_Irecv}
@@ -81,15 +82,23 @@ accesses that erode efficiency at higher parallelism levels.
 
 \subsection{Context}
 
-Batch inference: classifying a large set of unlabelled samples against a
-pre-trained model, is a routine workload in production machine-learning
-pipelines. When one of the models is a brute-force K-Nearest Neighbours
+Batch inference --- classifying a large set of unlabelled samples against a
+pre-trained model --- is a routine workload in production machine-learning
+pipelines. A \textbf{query} is a single prediction request: one feature vector
+$\mathbf{x}$ presented to the model, which returns a predicted class label.
+The model is \textbf{trained offline}: parameters are learned once, in a
+separate training step, and remain fixed for the lifetime of the inference
+engine. No learning occurs at inference time; the engine only reads the
+pre-computed parameters and evaluates them.
+
+When one of the models is a brute-force K-Nearest Neighbours
 classifier, the cost is $O(N_\text{train} \times F)$ per query: every test
 sample must be compared against all training points across all features.
-At the scale used here: 20{,}000 queries against 50{,}000 training points
-with 20 features, this amounts to roughly $2 \times 10^{10}$ floating-point
-operations, making sequential execution too slow for any interactive use case
-(baseline wall time: $\approx$20.6~s on a four-core laptop).
+At the scale used here --- 20{,}000 queries against 50{,}000 training points
+with 20 features --- this amounts to roughly $4 \times 10^{10}$ floating-point
+operations (40~FLOP per training point $\times$ 50{,}000 points $\times$
+20{,}000 queries), making sequential execution too slow for any interactive
+use case (baseline wall time: $\approx$20.6~s on a four-core laptop).
 
 The problem is a target for data-parallel acceleration: each test
 sample is fully independent, so the work can be distributed across workers
@@ -106,7 +115,7 @@ Three classifiers are combined into a soft-voting ensemble:
 \begin{itemize}
   \item \textbf{KNN (K-Nearest Neighbours):} stores all 50{,}000 training
         points and computes brute-force distances at query time.
-        This is the \emph{dominant cost}: about 75\% of total runtime
+        This is the \emph{dominant cost}: about 86\% of total runtime
         (measured by \texttt{gprof} at \texttt{-O0}; qualitative indicator only).
         Classification accuracy of the algorithm alone: 93.25\%.
   \item \textbf{Naive Bayes (NB):} uses precomputed class means and variances.
@@ -144,14 +153,10 @@ The gain over NB and LR nevertheless justifies the ensemble as a more
 robust classifier than either lightweight model alone.
 
 \textbf{Why this ensemble design and not boosting or bagging?}
-Boosting and bagging improve a \emph{single} base learner by re-weighting
-or re-sampling training data. Here the three models have fundamentally
-different inductive biases---KNN captures local geometry, NB assumes
-feature independence, LR fits a global linear decision boundary---so
-combining their diverse predictions provides a complementary error-reduction
-effect that no single stronger model achieves without re-training. This
-diversity also makes the ensemble more interpretable: each component
-is a well-understood algorithm with clear failure modes.
+Boosting and bagging improve a \emph{single} base learner; here the three
+models have fundamentally different inductive biases (local geometry,
+feature independence, linear boundary), so combining them provides
+complementary diversity that re-sampling a single learner cannot achieve.
 
 \subsection{Why Parallelize?}
 
@@ -163,8 +168,8 @@ followed by a \texttt{partial\_sort} to extract the $k$ nearest neighbours.
 The per-query cost is $O(N_\text{train} \times F)$, giving a total of:
 %
 \[
-  20{,}000 \times 50{,}000 \times 20 \approx 2 \times 10^{10}
-  \text{ multiply-accumulate operations}
+  20{,}000 \times 50{,}000 \times 40 \approx 4 \times 10^{10}
+  \text{ floating-point operations (40\,FLOP per training-point comparison)}
 \]
 %
 LR and NB contribute $O(F)$ and $O(C \times F)$ per query respectively, four to five orders of magnitude
@@ -321,6 +326,13 @@ Figure~\ref{fig:hybrid_hierarchy} illustrates this for $p=2$, $t=2$.
 \section{Problem Rationale}
 % ─────────────────────────────────────────────────────────────────────────────
 
+The parallel design follows a deliberate three-step workflow: (1)~train the
+ensemble offline once in Python to produce fixed model-parameter files;
+(2)~implement and profile a sequential C++ baseline to identify the
+computational hotspot; (3)~build the hybrid engine targeting that hotspot.
+This section documents steps~1 and~2. The parallel design is formalised
+in Sections~\ref{sec:decomposition}--\ref{sec:mapping}.
+
 \subsection{Problem Statement}
 
 \textbf{Input:} a pre-trained ensemble (KNN, NB, LR) and a test set of
@@ -363,7 +375,11 @@ licensing or data-provenance issues.
 \subsection{Sequential Solution}
 \label{sec:sequential}
 
-The sequential baseline processes one test sample at a time:
+The sequential binary (\texttt{inference\_seq.cpp}) serves two purposes:
+it is the \textbf{profiling target} that reveals which operation dominates
+runtime (Section~\ref{sec:profiling}), and it provides the reference
+wall-clock time $T_1$ against which all parallel speedups are measured
+(Section~\ref{sec:perf}). It processes one test sample at a time:
 
 \begin{enumerate}
   \item \textbf{KNN inference} (\texttt{knn\_distances\_tiled} + \texttt{partial\_sort}):
@@ -413,29 +429,29 @@ The sequential binary was compiled with \texttt{-O0 -pg} and profiled with
            $= 3\ \text{runs} \times 5{,}000\ \text{batches}$
            (\texttt{TILE\_Q}=4, so $20{,}000 / 4$ batches per run).
            The iterator-infrastructure entries
-           (\texttt{operator*}, \texttt{operator++}, etc.)\ are \texttt{-O0}
+           (\texttt{\_\_fill\_a1}, lambda comparators, etc.)\ are \texttt{-O0}
            instrumentation artefacts; at \texttt{-O2} they inline into the
            distance kernel and sort, leaving no separate symbol.
            Absolute times are not meaningful at \texttt{-O0}; only the
            relative hotspot breakdown is indicative.
-           NB and LR together account for $\approx$0.02\% --- effectively free.}
+           NB and LR together account for 0.01\% --- effectively free.}
   \label{tab:gprof}
   \begin{tabular}{rll}
     \toprule
     \textbf{\% time} & \textbf{Function} & \textbf{Calls} \\
     \midrule
-    75.07 & \texttt{knn\_distances\_tiled} (tiled distance kernel) & 15{,}000 \\
-     1.57 & \texttt{std::\_\_heap\_select} (\texttt{partial\_sort} core) & 60{,}000 \\
-     1.48 & \texttt{std::iota} (index reset per query)              & 60{,}000 \\
-    $\approx$14 & iterator internals (\texttt{-O0} artefact, inlined at \texttt{-O2}) & --- \\
-     0.02 & \texttt{nb\_predict\_proba}                            & 60{,}000 \\
+    86.28 & \texttt{knn\_distances\_tiled} (tiled distance kernel) & 15{,}000 \\
+     2.79 & \texttt{std::iota} (index reset per query)             & 60{,}000 \\
+     1.70 & \texttt{std::\_\_heap\_select} (\texttt{partial\_sort} core) & 60{,}000 \\
+    $\approx$9 & iterator/buffer internals (\texttt{-O0} artefact, inlined at \texttt{-O2}) & --- \\
+     0.01 & \texttt{nb\_predict\_proba}                            & 60{,}000 \\
      0.00 & \texttt{lr\_predict\_proba}                            & 60{,}000 \\
     \bottomrule
   \end{tabular}
 \end{table}
 
 \noindent
-NB and LR together account for approximately 0.02\% of runtime --- effectively free.
+NB and LR together account for approximately 0.01\% of runtime --- effectively free.
 All parallelization effort is therefore correctly directed at the outer loop
 over test samples, where \texttt{knn\_distances\_tiled} is called.
 
@@ -444,6 +460,12 @@ inlining or collapsing call chains, keeping individual functions visible
 to the sampler. The absolute times carry no performance significance;
 the profile is used solely to confirm the hotspot. All benchmarks in
 Section~\ref{sec:perf} use \texttt{-O2}.
+
+This finding drives the entire parallel design: \texttt{knn\_distances\_tiled}
+dominates runtime and each test sample is independent, so decomposing the
+test set across workers and parallelising the outer sample loop is the
+correct strategy. The PCAM decomposition in
+Section~\ref{sec:decomposition} formalises this choice.
 
 \subsection{Existing Parallel Approaches}
 
@@ -552,7 +574,7 @@ Two structural properties are immediately visible from the graph:
   \item \textbf{Single global synchronisation point.} Aggregate is the only
         node that depends on the entire computation. It cannot begin until
         all $N$ Vote tasks complete, making it the irreducible serial
-        fraction. The profiler attributes $\approx 0.02\%$ to NB and LR combined;
+        fraction. The profiler attributes $\approx 0.01\%$ to NB and LR combined;
         I/O and communication fall below the sampling threshold.
         Section~\ref{sec:perf} derives the effective serial fraction from
         measured speedups once memory-bandwidth contention is accounted for.
@@ -639,42 +661,13 @@ regardless of how many processors are available.
 
 \textbf{Intra-sample structure and why it is not parallelised.}
 Within a single sample group, KNN, NB, and LR are mutually independent
-and could in principle run concurrently. However, KNN accounts for
-$\approx 75\%$ of per-sample cost (Section~\ref{sec:profiling}), so it
-defines the intra-sample critical path by itself. Running NB and LR in
-parallel with KNN would shorten per-sample time by at most $25\%$, while
-forcing a thread fork/join on every one of the $N = 20{,}000$ samples
-per run. The overhead dominates the gain. The correct level at which to
+and could in principle run concurrently. However, KNN accounts for $\approx 86\%$ of per-sample cost
+(Section~\ref{sec:profiling}) and defines the intra-sample critical path
+by itself. Running NB and LR in parallel with KNN would save at most the
+NB+LR fraction --- below $0.01\%$ at \texttt{-O2} --- while forcing a
+thread fork/join on every one of the $N = 20{,}000$ samples per run.
+The overhead dominates the gain. The correct level at which to
 apply parallelism is \emph{across} sample groups, not within them.
-
-\subsection{Agglomeration}
-\label{sec:agglomeration}
-
-The Partition phase identified $N = 20{,}000$ primitive tasks --- one per
-test sample --- each fully independent. Assigning each primitive task to
-its own MPI process is not feasible: the per-task communication overhead
-(scatter + gather for a single sample: $20 \times 8 + 4 = 164$~bytes)
-at a 1\,Gb/s link takes $\approx 1.3~\mu\text{s}$, while the compute
-time per sample is $\approx 1.44$~ms, giving a granularity ratio of
-$g \approx 1{,}100$ at rank granularity but would collapse toward
-$g \approx 1$ at single-sample granularity --- communication cost and
-compute cost would be comparable, making independent-task dispatch
-inefficient.
-
-The $N$ primitive tasks are therefore \textbf{agglomerated} into $p$
-rank-level batches of $N/p$ samples each. At $p=4$ this gives
-$g = T_\text{comp}/T_\text{comm} \approx 7{,}200\,\text{ms} /
-6.4\,\text{ms} \approx 1{,}100$, confirming that each batch does
-far more compute than it spends communicating. Within each batch,
-the OpenMP-level agglomeration further groups per-sample iterations
-into $t$ thread-sized blocks, with no additional communication cost
-(threads share memory).
-
-This agglomeration is also the only choice consistent with exact KNN:
-each rank must hold the full training set to compute exact distances.
-Finer agglomeration (more, smaller tasks) would multiply
-scatter/gather messages without reducing the per-rank copy of
-\texttt{X\_train}.
 
 \subsection{Task Interaction Graph (TIG)}
 
@@ -687,13 +680,11 @@ This produces a \textbf{star topology}: all $p-1$ communication edges
 connect to Rank~0, and the total message count is $O(p)$. Doubling the
 number of ranks doubles the number of messages, a linear cost.
 
-The contrast with training-set decomposition is instructive. If each rank
-held only a shard of \texttt{X\_train}, it would need to compare its partial
-distances with every other rank to find the global $k$ nearest neighbours.
-Every rank would need a direct channel to every other rank, producing a
-fully-connected graph with $O(p^2)$ edges. At $p=8$ that is already 28
-connections instead of 7. Test-set decomposition avoids this entirely by
-keeping each rank's inference self-contained.
+From a topology perspective, training-set decomposition would require every
+rank to exchange partial distances with every other rank, producing a
+fully-connected graph with $O(p^2)$ edges --- 28 at $p=8$ rather than 7.
+Test-set decomposition reduces this to the star topology above because
+each rank's inference is entirely self-contained.
 
 \begin{figure}[H]
 \centering
@@ -831,26 +822,6 @@ MPI_Reduce(&local_correct, &global_correct, 1,
 This is outside the timing loop and communicates one integer per rank,
 instead of sending individual labels again.
 
-\subsection{Summary}
-
-\begin{table}[H]
-  \centering
-  \caption{The three MPI patterns and their roles.}
-  \label{tab:comm}
-  \footnotesize
-  \begin{tabular}{lll}
-    \toprule
-    \textbf{Pattern} & \textbf{Type} & \textbf{Purpose} \\
-    \midrule
-    \texttt{MPI\_Scatter}
-      & collective, blocking         & distribute test data \\
-    \texttt{MPI\_Isend/Irecv + Waitall}
-      & point-to-point, non-blocking & gather predictions at rank~0 \\
-    \texttt{MPI\_Reduce}
-      & collective, blocking         & sum correct counts for accuracy \\
-    \bottomrule
-  \end{tabular}
-\end{table}
 
 % ─────────────────────────────────────────────────────────────────────────────
 \section{Agglomeration}
@@ -898,6 +869,9 @@ effective L3 bandwidth demand by ${\approx}$\texttt{TILE\_Q}$\times$.
 This is why the measured throughput is significantly higher than a
 naïve per-query implementation would achieve;
 Figure~\ref{fig:cache_tiling} contrasts the two memory-access patterns.
+Each rank loads \texttt{X\_train} independently from disk, so all $p$ ranks
+stream their own copy without contending for the same cache lines across
+processes.
 
 \begin{figure}[H]
 \centering
@@ -936,7 +910,7 @@ Figure~\ref{fig:cache_tiling} contrasts the two memory-access patterns.
   {\texttt{X\_train} 8\,MB\\$>$ L3 capacity};
 
 \node[font=\small, red!70, align=center] at (-3.0,-2.70)
-  {7.6\,MB re-read from DRAM\\
+  {8\,MB re-read from DRAM\\
    on \emph{every} query\\
    $(\times\,20{,}000$ passes$)$};
 
@@ -988,13 +962,6 @@ Figure~\ref{fig:cache_tiling} contrasts the two memory-access patterns.
   by $\approx\texttt{TILE\_Q}\times$.}
 \label{fig:cache_tiling}
 \end{figure}
-
-\subsection{Training Data Locality}
-
-Every rank loads \texttt{X\_train} independently from disk rather than having
-rank~0 broadcast it. Each rank's copy sits in its own memory region, so all $p$
-ranks stream through training data in parallel without contending for the same
-cache lines.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \section{Mapping}
@@ -1083,10 +1050,10 @@ it would only be preferable if samples had variable cost, which they do not.
 
 \textbf{Residual idle time.}
 The only unavoidable idle periods are: (i)~rank~0 coordinates the gather and
-reduce phases while workers wait; (ii)~when $p$ does not divide $N_\text{test}$
-evenly, the test set is trimmed to the nearest multiple of $p$ (at most $p-1$
-dropped samples), introducing a negligible $< 0.01\%$ workload imbalance.
-All other idle time is eliminated by the static equal-partition strategy.
+reduce phases while workers wait; (ii)~the sample-count trimming described in
+Section~\ref{sec:decomposition} introduces a negligible $< 0.01\%$ workload
+imbalance. All other idle time is eliminated by the static equal-partition
+strategy.
 
 \subsection{Configurations Tested}
 
@@ -1390,7 +1357,7 @@ per feature, across 20 features), while reading 160 bytes (20
 double-precision values), yielding an arithmetic intensity of
 $40 / 160 = 0.25$~FLOP/byte. This figure covers the distance accumulation
 loop only; \texttt{partial\_sort} and related sort infrastructure contribute
-$\approx 5\%$ of runtime (Table~\ref{tab:gprof}) and raise the effective
+$\approx 2\%$ of runtime (Table~\ref{tab:gprof}) and raise the effective
 operation count slightly, but the kernel remains firmly bandwidth-bound.
 The DDR4-2133 dual-channel bus has a theoretical peak of $\approx 34$~GB/s;
 at typical DRAM efficiency ($\approx$88\%) the achievable bandwidth is
@@ -1543,7 +1510,7 @@ The dominant bottleneck is arithmetic intensity ($\approx 0.25$~FLOP/byte),
 which makes the KNN kernel bandwidth-bound on the shared DRAM bus.
 Amdahl's Law estimates a speedup ceiling of $\approx 7.5\times$ on infinite
 physical cores, with an apparent serial fraction of $f \approx 0.133$
-(above the $\approx$0.02\% NB+LR cost measured by the profiler; the gap is
+(above the $\approx$0.01\% NB+LR cost measured by the profiler; the gap is
 attributable to memory contention serialising parallel threads through the
 shared bus).
 
