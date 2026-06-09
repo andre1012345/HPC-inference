@@ -1,0 +1,18 @@
+# Compiled binaries
+inference_seq
+inference_dist_knn
+inference_seq_prof
+*.o
+
+# Large model/data files (regenerate with train.py)
+model_params/X_train.txt
+model_params/X_test.bin
+model_params/y_test.bin
+model_params/y_train.txt
+
+# Profiler artefacts
+gmon.out
+
+# Python cache
+__pycache__/
+*.pyc

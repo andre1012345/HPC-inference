@@ -1,0 +1,5 @@
+n_features 20
+n_train 50000
+knn_k 5
+random_state 42
+n_classes 2

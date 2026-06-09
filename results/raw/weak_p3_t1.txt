@@ -1,0 +1,9 @@
+  run 1: 1.59843 s
+  run 2: 1.07043 s
+  run 3: 1.39411 s
+
+Ranks    : 3  Threads/rank : 1
+Samples  : 3000 (original 3000)
+Accuracy : 89.4 %
+Median t : 1.39411 s
+Speedup  : T_1 / 1.39411  (divide by sequential baseline)
