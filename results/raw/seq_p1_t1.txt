@@ -1,6 +1,6 @@
-  run 1: 21.8239 s
-  run 2: 20.037 s
-  run 3: 19.661 s
+  run 1: 19.5258 s
+  run 2: 22.4109 s
+  run 3: 19.6546 s
 
 Accuracy : 88.44 %
-Median t : 20.037 s
+Median t : 19.6546 s

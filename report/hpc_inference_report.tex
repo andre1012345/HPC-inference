@@ -82,8 +82,8 @@ accesses that erode efficiency at higher parallelism levels.
 
 \subsection{Context}
 
-Batch inference --- classifying a large set of unlabelled samples against a
-pre-trained model --- is a routine workload in production machine-learning
+Batch inference (classifying a large set of unlabelled samples against a
+pre-trained model) is a routine workload in production machine-learning
 pipelines. A \textbf{query} is a single prediction request: one feature vector
 $\mathbf{x}$ presented to the model, which returns a predicted class label.
 The model is \textbf{trained offline}: parameters are learned once, in a
@@ -94,8 +94,8 @@ pre-computed parameters and evaluates them.
 When one of the models is a brute-force K-Nearest Neighbours
 classifier, the cost is $O(N_\text{train} \times F)$ per query: every test
 sample must be compared against all training points across all features.
-At the scale used here --- 20{,}000 queries against 50{,}000 training points
-with 20 features --- this amounts to roughly $4 \times 10^{10}$ floating-point
+At the scale used here (20{,}000 queries against 50{,}000 training points
+with 20 features), this amounts to roughly $4 \times 10^{10}$ floating-point
 operations (40~FLOP per training point $\times$ 50{,}000 points $\times$
 20{,}000 queries), making sequential execution too slow for any interactive
 use case (baseline wall time: $\approx$20.6~s on a four-core laptop).
@@ -195,7 +195,7 @@ workload across two levels of parallelism:
         one fork/join per timed run rather than per sample.
   \item \textbf{MPI\_Isend/MPI\_Irecv + MPI\_Waitall} gather local
         predictions at rank~0 non-blockingly; rank~0 posts all receives
-        simultaneously so multiple in-flight transfers proceed concurrently
+        simultaneously, so multiple in-flight transfers proceed concurrently
         rather than sequentially.
   \item \textbf{MPI\_Reduce} aggregates per-rank correct-prediction counts
         for a single global accuracy figure.
@@ -240,7 +240,7 @@ proportionally.
 OpenMP parallelism is \emph{fine-grained}. Threads within a rank share the
 same address space, so \texttt{X\_train} and the model parameters are loaded
 once and read concurrently without copying. The cost is potential contention
-on shared data structures --- avoided here because each thread writes to a
+on shared data structures; this is avoided here because each thread writes to a
 disjoint index of \texttt{local\_preds[i]} and uses pre-allocated private
 buffers (\texttt{dist\_bufs[tid]}, \texttt{idx\_bufs[tid]}).
 
@@ -357,7 +357,7 @@ X, y = make_classification(
 The 70{,}000 samples are split 50{,}000 / 20{,}000 (train / test) with
 stratified sampling. Features are standardised with a \texttt{StandardScaler}
 fitted on training data only; this step is critical for KNN because Euclidean
-distance is sensitive to feature scale---without normalisation a feature with a
+distance is sensitive to feature scale: without normalisation, a feature with a
 large numerical range would dominate the distance calculation and suppress the
 remaining 19 features. The script trains all three models and exports all parameters as plain-text
 files to \texttt{model\_params/}: the full $50{,}000\times20$ training
@@ -434,7 +434,7 @@ The sequential binary was compiled with \texttt{-O0 -pg} and profiled with
            distance kernel and sort, leaving no separate symbol.
            Absolute times are not meaningful at \texttt{-O0}; only the
            relative hotspot breakdown is indicative.
-           NB and LR together account for 0.01\% --- effectively free.}
+           NB and LR together account for 0.01\%, effectively free.}
   \label{tab:gprof}
   \begin{tabular}{rll}
     \toprule
@@ -451,7 +451,7 @@ The sequential binary was compiled with \texttt{-O0 -pg} and profiled with
 \end{table}
 
 \noindent
-NB and LR together account for approximately 0.01\% of runtime --- effectively free.
+NB and LR together account for approximately 0.01\% of runtime, effectively free.
 All parallelization effort is therefore correctly directed at the outer loop
 over test samples, where \texttt{knn\_distances\_tiled} is called.
 
@@ -490,8 +490,8 @@ every query. Ignatij~\cite{ignatij2022} implements both strategies with MPI
 and reports that test-set decomposition consistently outperforms training-set
 decomposition, motivating the choice made here.
 
-\textbf{Approximate KNN} replaces exact search with index structures ---
-trees, graphs, or quantization, reducing per-query cost from
+\textbf{Approximate KNN} replaces exact search with index structures
+(trees, graphs, or quantization), reducing per-query cost from
 $O(N_\text{train})$ to $O(\log N_\text{train})$ at the cost of recall.
 Johnson et al.~\cite{johnson2017faiss} show that FAISS scales to
 billion-scale datasets with controllable accuracy loss. For this project,
@@ -664,7 +664,7 @@ Within a single sample group, KNN, NB, and LR are mutually independent
 and could in principle run concurrently. However, KNN accounts for $\approx 86\%$ of per-sample cost
 (Section~\ref{sec:profiling}) and defines the intra-sample critical path
 by itself. Running NB and LR in parallel with KNN would save at most the
-NB+LR fraction --- below $0.01\%$ at \texttt{-O2} --- while forcing a
+NB+LR fraction (below $0.01\%$ at \texttt{-O2}), while forcing a
 thread fork/join on every one of the $N = 20{,}000$ samples per run.
 The overhead dominates the gain. The correct level at which to
 apply parallelism is \emph{across} sample groups, not within them.
@@ -682,7 +682,7 @@ number of ranks doubles the number of messages, a linear cost.
 
 From a topology perspective, training-set decomposition would require every
 rank to exchange partial distances with every other rank, producing a
-fully-connected graph with $O(p^2)$ edges --- 28 at $p=8$ rather than 7.
+fully-connected graph with $O(p^2)$ edges (28 at $p=8$ rather than 7).
 Test-set decomposition reduces this to the star topology above because
 each rank's inference is entirely self-contained.
 
@@ -831,7 +831,7 @@ instead of sending individual labels again.
 \subsection{Granularity}
 
 At the finest level, each of the 20{,}000 test samples is an independent task.
-One MPI rank per sample is impractical, the spawn and communication overhead
+One MPI rank per sample is impractical: the spawn and communication overhead
 would dominate. Tasks are therefore agglomerated in two stages:
 
 \begin{enumerate}
@@ -840,7 +840,7 @@ would dominate. Tasks are therefore agglomerated in two stages:
         of $N_\text{test}$.
   \item \textbf{OpenMP level.} Within each rank, the loop over local samples
         is parallelised with a single \texttt{\#pragma omp parallel for}.
-        This gives exactly \emph{one} fork/join per run --- not one per sample.
+        This gives exactly \emph{one} fork/join per run, not one per sample.
         A single fork/join on Linux costs $\approx$2--5~$\mu$s; amortised
         over ${\sim}5{,}000$ samples per rank this is $<$0.1\% of a 7~s run,
         versus ${\sim}10$~ms if forked per sample.
@@ -1013,12 +1013,12 @@ does not scale linearly beyond 4 physical cores.
 }
 
 \draw[l3box] (-6.15,-1.25) rectangle (6.15,-1.82);
-\node[font=\scriptsize\bfseries] at (-1.5,-1.54) {Shared L3 --- 6\,MB};
+\node[font=\scriptsize\bfseries] at (-1.5,-1.54) {Shared L3: 6\,MB};
 \node[warn] at (4.5,-1.54) {KNN: 8\,MB $>$ L3};
 
 \draw[-{Latex[length=4pt]}, gray!55, line width=0.9pt] (0,-1.82) -- (0,-2.46);
 \node[drambox] at (0,-2.74)
-  {DRAM --- 8\,GB DDR4 dual-channel ($\approx$29.9\,GB/s)};
+  {DRAM: 8\,GB DDR4 dual-channel ($\approx$29.9\,GB/s)};
 
 \end{tikzpicture}
 \caption{Memory hierarchy of the test platform. L1/L2 caches are private
@@ -1108,9 +1108,9 @@ map onto the physical hardware.
 
 %% column titles
 \node[font=\small\bfseries] at (-2.95, 4.65)
-  {(a)\;$p{=}4$,\;$t{=}1$ --- 1\,thread/rank};
+  {(a)\;$p{=}4$,\;$t{=}1$: 1\,thread/rank};
 \node[font=\small\bfseries] at ( 4.05, 4.65)
-  {(b)\;$p{=}4$,\;$t{=}2$ --- 2\,threads/rank};
+  {(b)\;$p{=}4$,\;$t{=}2$: 2\,threads/rank};
 
 %% sub-column headers
 \node[font=\tiny, gray!60] at (-4.15, 4.25) {physical thread};
@@ -1319,7 +1319,7 @@ the comparison fair. The 3\% gap between the two binaries ($\approx$0.6~s) is
 the fixed cost of the MPI framework at a single rank.
 
 \textbf{Single-threaded baseline ($t=1$).}
-At $p=2$ the $t=1$ configuration achieves $S=1.855$, $E_p=0.928$ ---
+At $p=2$, the $t=1$ configuration achieves $S=1.855$ and $E_p=0.928$,
 near-ideal utilisation of two independent cores. Efficiency declines steadily
 to $E_p=0.714$ at $p=4$ as all four cores concurrently stream their own
 8~MB copy of \texttt{X\_train} from DRAM, progressively saturating the
@@ -1362,7 +1362,7 @@ operation count slightly, but the kernel remains firmly bandwidth-bound.
 The DDR4-2133 dual-channel bus has a theoretical peak of $\approx 34$~GB/s;
 at typical DRAM efficiency ($\approx$88\%) the achievable bandwidth is
 $\approx 29.9$~GB/s, implying a throughput ceiling of
-$29.9 \times 0.25 \approx 7.5$~GFLOP/s --- far below the CPU's compute
+$29.9 \times 0.25 \approx 7.5$~GFLOP/s, far below the CPU's compute
 ceiling. The kernel is therefore \emph{bandwidth-bound by construction}.
 
 \textbf{Amdahl's Law.}
